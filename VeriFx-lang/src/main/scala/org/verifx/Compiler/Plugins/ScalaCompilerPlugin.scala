@@ -466,9 +466,10 @@ class ScalaCompilerPlugin extends Plugin[ScalaExp, ScalaExp, ClassTable] {
 
   def makePatternMatch(exp: ScalaExp, cases: List[Plugin.Case[ScalaExp]]): State[ClassTable, ScalaExp] = State.pure {
     val casesStr = cases.map(makeCase).mkString("\n")
-    ind"""$exp match {
+    // Parenthesized because `match` binds weaker than operators, e.g. when it is the operand of `&&`
+    ind"""($exp match {
          |  $casesStr
-         |}""".stripMargin
+         |})""".stripMargin
   }
 
   // A VeriFx import refers to a file and makes all its definitions visible, so import all of them

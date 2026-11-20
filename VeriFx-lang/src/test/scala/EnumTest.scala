@@ -37,6 +37,54 @@ class EnumTest extends FlatSpec {
     assert(!scalaCode.contains("Mode[]"))
   }
 
+  it should "compile a pattern match that is an operand to valid Scala" in {
+    val program =
+      """object Mode_enum {
+        |  enum Mode {
+        |    On() | Off()
+        |  }
+        |}
+        |
+        |class Foo(mode: Mode, flag: Boolean) {
+        |  def isOn() = this.flag && (this.mode match {
+        |    case On() => true
+        |    case _ => false
+        |  })
+        |}""".stripMargin
+
+    // `match` binds weaker than `&&`, so the pattern match needs parentheses
+    val scalaCode = ProgramCompiler(program).compileToLanguage(new ScalaCompilerPlugin)._2
+    assert(scalaCode.contains("(this.flag && (this.mode match {"))
+  }
+
+  it should "have the enumeration's type if branches return different constructors" in {
+    val program =
+      """object Op_enum {
+        |  enum Op[V] {
+        |    Ins(pos: Int, c: V) | Del(pos: Int) | Id()
+        |  }
+        |}
+        |
+        |class Foo {
+        |  def declared(x: Int): Op[String] = if (x > 0) new Ins[String](x, "a") else new Del[String](x)
+        |  def inferred(x: Int) = if (x > 0) new Ins[String](x, "a") else if (x < 0) new Del[String](x) else new Id[String]()
+        |  def matched(op: Op[String]) = op match {
+        |    case Id() => new Del[String](0)
+        |    case _ => new Id[String]()
+        |  }
+        |  def sameCtor(x: Int) = if (x > 0) new Del[String](1) else new Del[String](2)
+        |  def sameCtorField(x: Int) = this.sameCtor(x).pos
+        |}""".stripMargin
+
+    // Constructors of one enumeration are subtypes of each other, which must not make the first branch's constructor the type
+    val scalaCode = ProgramCompiler(program).compileToLanguage(new ScalaCompilerPlugin)._2
+    assert(scalaCode.contains("def declared(x: Int): Op[String] ="))
+    assert(scalaCode.contains("def inferred(x: Int): Op[String] ="))
+    assert(scalaCode.contains("def matched(op: Op[String]): Op[String] ="))
+    // Branches with the same constructor keep it, so that its fields remain accessible
+    assert(scalaCode.contains("def sameCtor(x: Int): Del[String] ="))
+  }
+
   it should "support type casts" in {
     // We should be able to type cast an enumeration type to a specific data constructor
     val correctTypeCast1 =

@@ -6,6 +6,25 @@ import org.verifx.Compiler.Plugins.Z3CompilerPlugin.Z3Type
 import org.verifx.Compiler.Plugins.Z3CompilerPlugin.Z3Type
 import com.microsoft.z3.{Context, Solver}
 
+import scala.util.control.NonFatal
+
+object Z3Prover {
+  /**
+   * Observer of the proofs checked on the current thread, e.g. for a progress display. It is only notified and never
+   * consulted, so proofs are checked the same with or without it. Statistics are only queried if it is set.
+   */
+  trait Listener {
+    def programReady(program: String, eliminatedVars: List[String]): Unit
+    def tryStarted(attempt: Int, maxTries: Int, timeout: Int): Unit
+    def tryFinished(attempt: Int, result: String, reasonUnknown: String, durationMs: Long, statistics: List[(String, String)]): Unit
+  }
+
+  val listener = new ThreadLocal[Listener]
+
+  // An error of the listener must not affect the proof
+  private[Analysis] def notify(f: Listener => Unit): Unit = Option(listener.get()).foreach(l => try f(l) catch { case NonFatal(_) => })
+}
+
 trait Z3Prover {
   private var tryDurations = List[Long]() // duration of each try in milliseconds
 
@@ -34,6 +53,7 @@ trait Z3Prover {
       while (sat == "UNKNOWN" && tries < maxTries) {
         tries = tries + 1
         val tryStart = System.nanoTime()
+        Z3Prover.notify(_.tryStarted(tries, maxTries, timeout))
 
         val parsed = z3.parseSMTLIB2String(strZ3, null, null, null, null)
         val exp = z3.mkAnd(parsed:_*)
@@ -48,7 +68,11 @@ trait Z3Prover {
         solver.add(exp)
         val res = solver.check()
         sat = res.name()
-        tryDurations = tryDurations :+ (System.nanoTime() - tryStart) / 1000000
+        val tryDuration = (System.nanoTime() - tryStart) / 1000000
+        tryDurations = tryDurations :+ tryDuration
+        val triedSolver = solver
+        Z3Prover.notify(_.tryFinished(tries, sat, if (sat == "UNKNOWN") triedSolver.getReasonUnknown else "", tryDuration,
+          triedSolver.getStatistics.getEntries.toList.map(e => (e.Key, e.getValueString))))
       }
 
       //solver.reset()
@@ -68,6 +92,7 @@ trait Z3Prover {
    * @return A [[ProofResult]] object representing the result of the proof
    */
   def prove(strZ3: String, maxTries: Int = 5, timeout: Int = 10000, varsAndType: List[(String, Z3Type)] = List()): ProofResult = {
+    Z3Prover.notify(_.programReady(strZ3, varsAndType.map(_._1)))
     val (sat, solver, z3) = proveInternal(strZ3)(maxTries, timeout)
     val res = sat match {
       case "UNSATISFIABLE" => {

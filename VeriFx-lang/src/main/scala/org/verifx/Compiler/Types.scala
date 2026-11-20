@@ -238,8 +238,11 @@ object Types {
     types match {
       case Nil => None
       case tpe :: otherTypes => {
+        // Constructors of one enumeration are subtypes of each other (they are one type in Z3), so the hierarchy check
+        // would return the first constructor. The common type of different constructors is their enumeration.
+        val enumType = if (otherTypes.forall(_ =:= tpe)) None else getEnumType(tpe, otherTypes)
         // `tpe` may be a primitive type in which case it won't be in the class table (and also has no super type).
-        checkHierarchy(tpe, classTable.getConcrete(tpe).flatMap(_.sup), otherTypes)
+        enumType.orElse(checkHierarchy(tpe, classTable.getConcrete(tpe).flatMap(_.sup), otherTypes))
       }
     }
   }
@@ -1019,7 +1022,14 @@ object Types {
         case _ => throw ClassNotFound(getClassName(tpe), exp.pos)
       }
     }
-    case Term.If(_, thenB, _) => inferType(thenB, env)
+    case fi @ Term.If(_, thenB, elseB) => {
+      // Type of the if expression is the common type of both branches, as for pattern matches
+      implicit val thisClass = getThisClassFromEnv(env)
+      Types.getLeastCommonType(List(inferType(thenB, env), inferType(elseB, env))) match {
+        case Some(tpe) => tpe
+        case None => throw TypeError(s"Branches have no common super type.", fi.pos)
+      }
+    }
     case block @ Term.Block(stats) => {
       // TODO: make it tail recursive!
       if (stats.isEmpty) throw ParseError(s"Illegal empty block.", exp.pos)
