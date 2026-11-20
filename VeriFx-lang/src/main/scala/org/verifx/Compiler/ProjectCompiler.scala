@@ -321,13 +321,17 @@ case class ProjectCompiler(components: List[List[(FileName, List[Stat])]], depen
             compiler.newProofIndex.keys.par.foreach {
               case proof => {
                 val proofName = s"- ${proof._1}.${proof._2}"
+                val proofStart = System.nanoTime()
                 val proofRes = compiler.checkProofForModel(proof, maxTries, timeout)
+                // Total duration includes compiling the proof to Z3
+                val totalDuration = (System.nanoTime() - proofStart) / 1000000
+                val stats = s" [tries: ${proofRes.tries}] [try durations (ms): ${proofRes.tryDurations.mkString(", ")}] [total (ms): $totalDuration]"
                 // Synchronize the printing part to avoid the output of different proofs to be intermingled
                 this.synchronized {
                   proofRes match {
-                    case Proved(_) => println(Console.GREEN + s"$proofName [proved]")
-                    case rej @ Rejected(_, _, _, _, _, _) => println(Console.RED + s"$proofName [rejected]" + s"\nCounterexample:\n$rej")
-                    case Aborted(_) => println(Console.BLUE + s"$proofName [timed out]")
+                    case Proved(_) => println(Console.GREEN + s"$proofName [proved]$stats")
+                    case rej @ Rejected(_, _, _, _, _, _) => println(Console.RED + s"$proofName [rejected]$stats" + s"\nCounterexample:\n$rej")
+                    case Aborted(_) => println(Console.BLUE + s"$proofName [timed out]$stats")
                   }
                 }
                 proofRes.dispose() // free the memory used by Z3

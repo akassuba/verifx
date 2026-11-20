@@ -25,6 +25,10 @@ object Proofs {
   sealed trait ProofResult {
     val z3Program: String
     def dispose(): Unit = ()
+
+    // Statistics of the Z3 run that produced this result: duration of each try in milliseconds
+    var tryDurations: List[Long] = List()
+    def tries: Int = tryDurations.size
   }
 
   /**

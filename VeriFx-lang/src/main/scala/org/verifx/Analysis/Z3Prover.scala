@@ -7,6 +7,8 @@ import org.verifx.Compiler.Plugins.Z3CompilerPlugin.Z3Type
 import com.microsoft.z3.{Context, Solver}
 
 trait Z3Prover {
+  private var tryDurations = List[Long]() // duration of each try in milliseconds
+
   private def proveInternal(strZ3: String)(implicit maxTries: Int, timeout: Int): (String, Solver, Context) = {
     try {
       val cfg: HashMap[String, String] = new HashMap[String, String]()
@@ -31,6 +33,7 @@ trait Z3Prover {
        */
       while (sat == "UNKNOWN" && tries < maxTries) {
         tries = tries + 1
+        val tryStart = System.nanoTime()
 
         val parsed = z3.parseSMTLIB2String(strZ3, null, null, null, null)
         val exp = z3.mkAnd(parsed:_*)
@@ -45,6 +48,7 @@ trait Z3Prover {
         solver.add(exp)
         val res = solver.check()
         sat = res.name()
+        tryDurations = tryDurations :+ (System.nanoTime() - tryStart) / 1000000
       }
 
       //solver.reset()
@@ -82,6 +86,7 @@ trait Z3Prover {
       case str => throw new InternalError(s"Unexpected answer from Z3: $str")
     }
 
+    res.tryDurations = tryDurations
     res
   }
 }
